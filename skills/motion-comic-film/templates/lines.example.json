@@ -1,0 +1,5 @@
+[
+ {"id": "001", "text": "First hook line: the strangest fact of the story, said plainly."},
+ {"id": "002", "text": "Second hook line: what it cost the narrator.", "gap": 0.4},
+ {"id": "003", "text": "The story begins here.", "brk": 2}
+]

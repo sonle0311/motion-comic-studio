@@ -1,0 +1,97 @@
+<!doctype html><meta charset=utf-8>
+<link rel="icon" href="data:,">
+<link rel="stylesheet" href="fonts.css">
+<style>html,body{margin:0;background:#000;overflow:hidden}canvas{display:block}</style>
+<canvas id=c></canvas>
+<script>
+// Motion-comic stage. One still per shot, moved by code: slow camera, pose swap between a base image and its variant,
+// frame jitter at 8 fps ("line boil"), rain, lamp flicker, incense smoke, mist, dust, subtitles, title and end card.
+// Page contract for scripts/render.mjs: window.READY, window.DUR (seconds), window.render(t) deterministic.
+// Project files, all next to this page: project.json, timing.json, cues.json, shots.json, img/hi/<name>.jpg
+const C = document.getElementById('c'), X = C.getContext('2d');
+let W = 1080, H = 1920, P = {}, SH = [], CUES = [], T0 = {}, IM = {}, LA, LB, LAx, LBx;
+const ss = x => x <= 0 ? 0 : x >= 1 ? 1 : x * x * (3 - 2 * x), seg = (t, a, b) => ss((t - a) / (b - a)), lerp = (a, b, k) => a + (b - a) * k;
+const hash = n => { const s = Math.sin(n * 127.1) * 43758.5453; return s - Math.floor(s); };
+const J = async f => (await fetch(f)).json();
+async function boot() {
+  P = await J('project.json'); [W, H] = P.size || [1080, 1920]; C.width = W; C.height = H;
+  const mk = () => { const c = document.createElement('canvas'); c.width = W; c.height = H; return c; };
+  LA = mk(); LB = mk(); LAx = LA.getContext('2d'); LBx = LB.getContext('2d');
+  P.font = P.font || 'Helvetica Neue, Arial, sans-serif'; P.titleFont = P.titleFont || 'Georgia, serif';
+  await Promise.all([`600 ${46}px ${P.font}`, `700 150px ${P.titleFont}`].map(f => document.fonts.load(f, P.title || 'A').catch(() => 0)));
+  const tm = await J('timing.json'); window.DUR = tm.dur; for (const [id, v] of Object.entries(tm.lines)) T0[id] = v.t;
+  CUES = await J('cues.json'); SH = await J('shots.json');
+  SH.forEach((s, i) => { s.t0 = i === 0 ? 0 : T0[s.line] - (P.lead ?? .35) + (s.dt || 0); });
+  SH.forEach((s, i) => { s.t1 = i + 1 < SH.length ? SH[i + 1].t0 : window.DUR; });
+  const names = [...new Set(SH.flatMap(s => [s.img, s.alt && s.alt.img].filter(Boolean)))];
+  await Promise.all(names.map(n => new Promise(r => { const im = new Image(); im.onload = r; im.onerror = () => { console.error('missing image', n); r(); }; im.src = 'img/hi/' + n + '.jpg'; IM[n] = im; })));
+  P.end = CUES.length ? CUES[CUES.length - 1].t1 + 2.2 : window.DUR - 4;
+  window.render(0); window.READY = true;
+}
+const sx = v => v * W / 1080;   // layout was designed at 1080 wide
+function drawImg(ctx, name, s, t) {
+  const v = IM[name]; if (!v || !v.width) return; const w = v.width, h = v.height;
+  const k = ss((t - s.t0) / Math.max(1, s.t1 - s.t0)), [x0, y0, z0, x1, y1, z1] = s.kb || [.5, .42, 1, .5, .4, 1.12];
+  let cx = lerp(x0, x1, k) * w, cy = lerp(y0, y1, k) * h, z = lerp(z0, z1, k);
+  if (s.shakeAt) { const a = t - T0[s.shakeAt]; if (a > 0 && a < .6) { const q = (1 - a / .6) * 28; cx += q * (hash(Math.floor(t * 24)) - .5); cy += q * (hash(Math.floor(t * 24) + 5) - .5); } }
+  const sc = Math.max(W / w, H / h) * 1.012 * z, hw = W / 2 / sc, hh = H / 2 / sc;
+  cx = Math.min(w - hw, Math.max(hw, cx)); cy = Math.min(h - hh, Math.max(hh, cy));
+  const step = Math.floor(t * 8), b = (P.boil ?? .9) * (s.boil ?? 1), jx = b * 1.6 * (hash(step * 1.31) - .5), jy = b * 1.6 * (hash(step * 2.17 + 3) - .5), jr = b * .0012 * (hash(step * 3.7 + 9) - .5);
+  const ox = W / 2 - cx * sc + jx, oy = H / 2 - cy * sc + jy;
+  ctx.setTransform(1, 0, 0, 1, 0, 0); ctx.fillStyle = '#000'; ctx.fillRect(0, 0, W, H); ctx.imageSmoothingQuality = 'high';
+  ctx.translate(W / 2, H / 2); ctx.rotate(jr); ctx.translate(-W / 2, -H / 2); ctx.transform(sc, 0, 0, sc, ox, oy); ctx.drawImage(v, 0, 0); ctx.setTransform(1, 0, 0, 1, 0, 0);
+  s._cam = [ox, oy, sc, w, h];
+}
+function drawShot(ctx, tmp, tmpx, s, t) {
+  drawImg(ctx, s.img, s, t);
+  if (s.alt) { const a = s.alt, lt = t - s.t0, d = s.t1 - s.t0; let k = 0;
+    if (a.mode === 'loop') { const ph = (lt / a.period) % 1; k = ph < .5 ? seg(ph, .38, .5) : 1 - seg(ph, .88, 1); }
+    else if (a.at) k = seg(t, T0[a.at] + (a.dt || 0), T0[a.at] + (a.dt || 0) + (a.fade || .5));
+    else k = seg(lt, d * (a.frac ?? .5), d * (a.frac ?? .5) + (a.fade || .6));
+    if (k > 0) { const cam = s._cam; drawImg(tmpx, a.img, s, t); s._cam = cam; ctx.globalAlpha = k; ctx.drawImage(tmp, 0, 0); ctx.globalAlpha = 1; } }
+  if (s.sepia) { ctx.globalCompositeOperation = 'color'; ctx.fillStyle = 'rgba(120,92,56,.8)'; ctx.fillRect(0, 0, W, H); ctx.globalCompositeOperation = 'source-over'; }
+  if (s.dark) { ctx.fillStyle = `rgba(0,0,0,${1 - s.dark})`; ctx.fillRect(0, 0, W, H); }
+}
+function rain(t, a) { X.strokeStyle = `rgba(200,212,230,${.26 * a})`; X.lineWidth = sx(2);
+  for (let i = 0; i < 150; i++) { const x = hash(i) * W * 1.1 - W * .05, sp = 1700 + 900 * hash(i + 3), y = ((t * sp + hash(i + 7) * 2400) % (H * 1.2)) - H * .1;
+    X.beginPath(); X.moveTo(x, y); X.lineTo(x - sx(10), y + sx(46 + 30 * hash(i + 1))); X.stroke(); } }
+function mist(t, a) { for (let i = 0; i < 7; i++) { const x = ((t * (14 + 9 * hash(i)) + hash(i + 2) * 1500) % (W * 1.6)) - W * .3, y = H * (.55 + .27 * hash(i + 5)), r = sx(260 + 200 * hash(i + 9));
+    const g = X.createRadialGradient(x, y, 0, x, y, r); g.addColorStop(0, `rgba(190,200,210,${.10 * a})`); g.addColorStop(1, 'rgba(190,200,210,0)'); X.fillStyle = g; X.fillRect(x - r, y - r * .5, 2 * r, r); } }
+function dust(t, a) { for (let i = 0; i < 46; i++) { const x = (hash(i) * W + 26 * Math.sin(t * .5 + i)) % W, hh = H * .78, y = ((hash(i + 4) * hh - t * (8 + 14 * hash(i + 8))) % hh + hh) % hh, tw = .5 + .5 * Math.sin(t * 2 + i * 1.7);
+    X.fillStyle = `rgba(255,226,170,${.34 * a * tw})`; X.beginPath(); X.arc(x, y, sx(1.6 + 2.2 * hash(i + 2)), 0, 7); X.fill(); } }
+function smoke(t, s, pts) { const [ox, oy, sc, w, h] = s._cam, L = 150 * sc; X.lineCap = 'round';
+  for (const [nx, ny] of pts) for (let j = 0; j < 3; j++) { X.beginPath(); const x0 = ox + nx * w * sc, y0 = oy + ny * h * sc;
+    for (let q = 0; q <= 26; q++) { const u = q / 26, y = y0 - u * L, x = x0 + sx(18 + 46 * u) * Math.sin(u * 5 + t * 1.3 + j * 2.1) * u + j * 6; q ? X.lineTo(x, y) : X.moveTo(x, y); }
+    const g = X.createLinearGradient(0, y0, 0, y0 - L); g.addColorStop(0, 'rgba(225,225,220,.42)'); g.addColorStop(1, 'rgba(225,225,220,0)'); X.strokeStyle = g; X.lineWidth = sx(5 + 3 * j); X.stroke(); } }
+function subs(t) {
+  let c = CUES.find(c => t >= c.t0 && t < c.t1); if (!c) return;
+  if (c.text.length > 95) { const parts = (c.text.match(/[^.!?…]+[.!?…]*\s*/g) || [c.text]).reduce((a, p) => { if (a.length && (a[a.length - 1] + p).length < 70) a[a.length - 1] += p; else a.push(p); return a; }, []);
+    const u = (t - c.t0) / (c.t1 - c.t0) * c.text.length; let acc = 0, pick = parts[parts.length - 1]; for (const p of parts) { if (u < acc + p.length) { pick = p; break; } acc += p.length; } c = { text: pick.trim() }; }
+  const fs = sx(46), maxW = W * .833; X.font = `600 ${fs}px ${P.font}`; X.textAlign = 'center'; X.textBaseline = 'middle';
+  const words = c.text.split(' '); let lines = [], cur = '';
+  for (const w of words) { if (X.measureText(cur + ' ' + w).width > maxW && cur) { lines.push(cur); cur = w; } else cur = cur ? cur + ' ' + w : w; } lines.push(cur);
+  if (lines.length === 2) { let bd = 1e9; for (let i = 1; i < words.length; i++) { const a = words.slice(0, i).join(' '), b = words.slice(i).join(' '), wa = X.measureText(a).width, wb = X.measureText(b).width; if (wa <= maxW && wb <= maxW && Math.abs(wa - wb) < bd) { bd = Math.abs(wa - wb); lines = [a, b]; } } }
+  const y0 = H * .854 - (lines.length - 1) * fs * .67;
+  lines.forEach((l, i) => { X.lineWidth = sx(9); X.strokeStyle = 'rgba(0,0,0,.85)'; X.lineJoin = 'round'; X.strokeText(l, W / 2, y0 + i * fs * 1.35); X.fillStyle = P.subColor || '#f4efe4'; X.fillText(l, W / 2, y0 + i * fs * 1.35); });
+}
+function title(a, end) { X.fillStyle = `rgba(0,0,0,${a})`; X.fillRect(0, 0, W, H); X.globalAlpha = a; X.textAlign = 'center'; X.textBaseline = 'middle';
+  let fs = sx(150); X.font = `700 ${fs}px ${P.titleFont}`; while (X.measureText(P.title || '').width > W * .86 && fs > 20) { fs *= .94; X.font = `700 ${fs}px ${P.titleFont}`; }
+  X.fillStyle = P.titleColor || '#b3201c'; X.fillText(P.title || '', W / 2, H * .47);
+  if (end) (P.endCard || []).forEach((l, i) => { X.font = `600 ${sx(i ? 30 : 34)}px ${P.font}`; X.fillStyle = i ? '#9d978b' : '#cfc8ba'; X.fillText(l, W / 2, H * .54 + i * sx(60)); });
+  X.globalAlpha = 1; }
+window.render = function (t) {
+  X.setTransform(1, 0, 0, 1, 0, 0); X.globalAlpha = 1; X.fillStyle = '#000'; X.fillRect(0, 0, W, H);
+  const i = Math.max(0, SH.findIndex(s => t >= s.t0 && t < s.t1)), s = SH[i]; if (!s) return;
+  drawShot(LAx, LB, LBx, s, t); X.drawImage(LA, 0, 0);
+  const XF = P.crossfade ?? .45; if (i > 0 && t - s.t0 < XF && !s.cut) { const cam = s._cam; drawShot(LAx, LB, LBx, SH[i - 1], t); X.globalAlpha = 1 - (t - s.t0) / XF; X.drawImage(LA, 0, 0); X.globalAlpha = 1; s._cam = cam; }
+  if (s.smoke) smoke(t, s, s.smoke);
+  if (s.flick) { const f = .05 + .07 * Math.max(0, Math.sin(t * 23) * Math.sin(t * 7.3)) + (hash(Math.floor(t * 12)) > .94 ? .14 : 0); X.fillStyle = `rgba(0,0,0,${f * s.flick})`; X.fillRect(0, 0, W, H); }
+  if (s.mist) mist(t, s.mist); if (s.dust) dust(t, s.dust); if (s.rain) rain(t, s.rain);
+  const v = X.createRadialGradient(W / 2, H * .47, W * .39, W / 2, H * .47, W * 1.16); v.addColorStop(0, 'rgba(0,0,0,0)'); v.addColorStop(1, 'rgba(0,0,0,.55)'); X.fillStyle = v; X.fillRect(0, 0, W, H);
+  const g = X.createLinearGradient(0, H * .72, 0, H); g.addColorStop(0, 'rgba(0,0,0,0)'); g.addColorStop(.55, 'rgba(0,0,0,.72)'); g.addColorStop(1, 'rgba(0,0,0,.95)'); X.fillStyle = g; X.fillRect(0, H * .72, W, H * .28);
+  const TI = P.titleAt; let ta = 0; if (TI) { ta = seg(t, TI[0], TI[0] + .4) * (1 - seg(t, TI[1] - .4, TI[1])); if (ta > 0) title(ta, false); }
+  if (!(TI && t >= TI[0] && t <= TI[1])) subs(t);
+  const ea = seg(t, P.end - .6, P.end + .6); if (ea > 0) title(ea, true);
+};
+boot();
+</script>

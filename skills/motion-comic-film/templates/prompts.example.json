@@ -1,0 +1,12 @@
+{
+ "style": "Vertical 9:16 illustration, same drawing style as the reference image(s): clean confident ink outlines, flat two-tone cel shading, muted palette. Keep the exact face, hair and clothes of each referenced character. Main subject in the upper two thirds of the frame, lower fifth calm and dark for subtitles. No text, no letters, no logo, no watermark.\nScene: ",
+ "edit": "Edit the reference image. Keep EXACTLY the same composition, camera, characters, clothes, drawing style, background and lighting. Change ONLY this: ",
+ "shots": [
+  {"name": "s01", "line": "001", "refs": ["refs/heroine.jpg"], "scene": "What the viewer sees, who is in it (described in words as well as by reference), the light, the weather."},
+  {"name": "s02", "line": "002", "refs": ["refs/hero.jpg", "refs/elder.jpg"], "scene": "..."},
+  {"name": "s03", "line": "003", "refs": ["img/s02.jpg"], "scene": "An empty establishing view, NO PEOPLE. (Style reference is a people-free image so no character leaks in.)"}
+ ],
+ "variants": [
+  {"of": "s02", "change": "the old man has turned his head to the other side, eyes closed, mid head-shake."}
+ ]
+}

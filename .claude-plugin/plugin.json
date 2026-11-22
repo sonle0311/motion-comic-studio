@@ -1,0 +1,23 @@
+{
+  "name": "motion-comic-studio",
+  "version": "0.1.0",
+  "license": "MIT",
+  "description": "Make narrated motion-comic films: design a cast from a story, generate consistent stills through a Flow2API server, and animate, subtitle, mix and render them in code.",
+  "keywords": ["motion-comic", "storytelling", "video", "flow2api", "character-design"],
+  "skills": ["./skills/"],
+  "userConfig": {
+    "FLOW2API_BASE_URL": {
+      "type": "string",
+      "title": "Flow2API service root",
+      "description": "Root URL of your Flow2API server, without /v1. Defaults to http://localhost:8000.",
+      "required": false
+    },
+    "FLOW2API_API_KEY": {
+      "type": "string",
+      "title": "Flow2API generation API key",
+      "description": "Key for your own Flow2API server. Stored in secure storage.",
+      "sensitive": true,
+      "required": false
+    }
+  }
+}

@@ -1,0 +1,8 @@
+{
+  "name": "motion-comic-studio",
+  "description": "Skills for making narrated motion-comic films with Claude Code.",
+  "owner": { "name": "motion-comic-studio" },
+  "plugins": [
+    { "name": "motion-comic-studio", "source": "./", "description": "Story to cast to stills to a finished motion-comic film." }
+  ]
+}

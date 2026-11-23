@@ -14,14 +14,14 @@ A Claude Code plugin for making narrated motion-comic films: a story becomes a c
 
 - Claude Code
 - Python 3.9+, ffmpeg, Node 18+, Google Chrome
-- Your own Flow2API server and generation key (images are paid generations on your account)
+- Your own Flow2API server and generation key: see [Set up the Flow2API server](#set-up-the-flow2api-server) (images are paid generations on your account)
 - Optional: Pillow (watermark patch, contact sheets), VTracer (vector pieces)
 - A way to record narration: any text-to-speech tool or a human voice. One audio file per line.
 
 ## Install
 
 ```text
-/plugin marketplace add <owner>/motion-comic-studio
+/plugin marketplace add sonle0311/motion-comic-studio
 /plugin install motion-comic-studio@motion-comic-studio
 ```
 
@@ -30,6 +30,33 @@ Then install the renderer's one dependency:
 ```sh
 cd <plugin folder>/skills/motion-comic-film/scripts && npm install
 ```
+
+## Set up the Flow2API server
+
+The `flow2api` skill is only a client. Image and video generation happens on a Flow2API server that you run yourself, signed in with your own Google Flow account. The server is a separate project:
+
+- Server used with this plugin: https://github.com/sonle0311/flow2api (a fork with extra fixes)
+- Original project: https://github.com/TheSmallHanCat/flow2api (MIT, by TheSmallHanCat)
+
+Quick start with Docker:
+
+```sh
+git clone https://github.com/sonle0311/flow2api.git
+cd flow2api
+docker compose up -d
+```
+
+Or without Docker:
+
+```sh
+git clone https://github.com/sonle0311/flow2api.git
+cd flow2api
+python3 -m venv .venv && . .venv/bin/activate
+pip install -r requirements.txt
+python main.py
+```
+
+The server listens on port 8000. Open its admin page, add your Flow account, choose a captcha method and create a generation key; the server's own README covers each step. Then give this plugin the service root (for a local server, `http://localhost:8000`) and that key as described below.
 
 ## Configure Flow2API
 

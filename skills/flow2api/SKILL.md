@@ -15,7 +15,7 @@ The client is one Python script, `scripts/flow2api.py`, next to this file. It ne
 |---|---|---|
 | `FLOW2API_BASE_URL` | default `http://localhost:8000` | service root, **without** `/v1`; keep a proxy prefix if there is one |
 | `FLOW2API_API_KEY` | generation key | secret |
-| `FLOW2API_MAX_PARALLEL_IMAGE` / `_VIDEO` | 9 / 6 | client-side limit on parallel requests |
+| `FLOW2API_MAX_PARALLEL_IMAGE` / `_VIDEO` | 9 / 6 | client-side limit on parallel requests; the server's capacity grows with its number of Google accounts, not with client threads |
 
 The script looks up the base URL and the key in this order and takes the first value it finds:
 
@@ -39,16 +39,30 @@ If the server is not on `localhost:8000`, the user changes the URL in that comma
 
 ```bash
 S="${CLAUDE_SKILL_DIR}/scripts/flow2api.py"
-python3 "$S" check            # GET /v1/models + /aliases; free; run this first
+python3 "$S" check            # GET /v1/models, /aliases, /v1beta/models, /v1/jobs; free; run this first
 python3 "$S" models           # table of valid models and combinations (local, no network)
 python3 "$S" image "prompt" --aspect 9:16 --size 1K --out <dir> --name <name>
 python3 "$S" image "keep the character, change the setting..." --ref character.png --out ...   # image-to-image
-python3 "$S" video "prompt" --model veo-3.1-fast --mode t2v --aspect 9:16 --duration 8 --out ...
-python3 "$S" video "slow camera push" --mode i2v --ref first.png [--ref last.png] --duration 4 --out ...
-python3 "$S" video "..." --mode r2v --ref subject.png --ref style.png          # 1–3 reference images
-python3 "$S" video "continue" --mode extend --extend <media_id> --out ...      # extend a Flow video
+python3 "$S" video "prompt" --out ...                                        # omni-1.2-flash, auto, 8 s, 16:9
+python3 "$S" video "..." --model omni-1.2-flash --ref char.png --ref scene.png --duration 10 --out ...  # 0–10 references
+python3 "$S" video "slow camera push" --model veo-3.1-lite --mode i2v --ref first.png [--ref last.png] --duration 4 --out ...
+python3 "$S" video "..." --model veo-3.1-lite --mode r2v --ref subject.png --ref style.png   # 1–3 reference images
+python3 "$S" video "..." --transport stream --out ... --name shot1           # keep the Flow media ID for later
+python3 "$S" video "continue the run" --mode extend --source <media_id> --duration 6 --out ...   # append 3–10 s
+python3 "$S" video "make the bib red" --mode edit --source <media_id> --duration 8 --out ...     # rewrite a 3–15 s source
 python3 "$S" batch jobs.jsonl --parallel 3   # one job per line: {"kind":"image","prompt":"...","aspect":"9:16","ref":["a.png"],"out":"...","name":"..."}
+python3 "$S" jobs list                       # this key's recent jobs (id, status, model, media URL)
+python3 "$S" jobs fetch <job_id> --out <dir> --name <name>   # download a finished job's media, no new charge
+python3 "$S" jobs cancel <job_id>            # stop waiting; work already sent to Flow may still be charged
 ```
+
+### Jobs, re-runs and media IDs
+
+- By default every generation goes through the job API: `POST /v1/jobs` with an `Idempotency-Key` built from the request body, then the script polls `GET /v1/jobs/{id}` (it follows `Retry-After`). The job id is also written to `<out>/<name>.job.json` as soon as it exists.
+- **Re-running the same command, or the same batch, after a timeout, a crash or an interrupted run does not pay again**: the server returns the original job and the script downloads its result. Jobs are kept for 7 days. Pass `--new` only when you really want another take of an identical request.
+- If the run died after the job finished, `jobs list` shows it and `jobs fetch <id>` downloads it.
+- Job results do not carry the Flow media ID. For a video you may later **extend** or **edit**, generate it with `--transport stream` and keep `media_id` from its JSON. Extend and edit only work on `omni-1.2-flash`, with no reference images.
+- A server without `/v1/jobs` (older Flow2API) is detected and the script falls back to the streaming route.
 
 - For a long prompt, use `--prompt-file file.txt`.
 - Each result is saved as `<name>.png|.jpg|.mp4` with a `<name>.json` beside it. The JSON file records the model, the config, the prompt and the `media_id`. Keep the `media_id`: you need it to extend a video.
@@ -67,15 +81,21 @@ Use only the combinations in these tables. The script checks before it sends and
 
 | Video | mode | aspect | seconds | images |
 |---|---|---|---|---|
-| `veo-3.1-fast` / `veo-3.1-lite` | t2v | 16:9, 9:16 | 4, 6, 8 | 0 |
+| `omni-1.2-flash` (default) | auto | 16:9, 9:16 | 3–15 | 0–10 (text-to-video with 0, reference video with 1–10) |
+| | extend | 16:9, 9:16 | 3–10 (seconds appended) | 0, plus `--source ID` |
+| | edit | 16:9, 9:16 | 3–15 (length of the source) | 0, plus `--source ID` |
+| `veo-3.1-lite` / `veo-3.1-fast` | t2v | 16:9, 9:16 | 4, 6, 8 | 0 |
 | | i2v | 16:9, 9:16 | 4, 6 | 1–2 (first frame, last frame) |
 | | r2v | 16:9, 9:16 | 8 | 1–3 (subject or style references) |
-| | extend | 16:9, 9:16 | 8 | 0, plus `--extend ID` |
-| `veo-3.1-quality` | t2v, i2v, extend (no r2v) | same | same | same |
-| `omni-1.1-flash` | auto | 16:9, 9:16 | 4, 6, 8, 10 | 0–3 |
-| `omni-1.2-flash` | auto | 16:9, 9:16 | 16:9: 3–10; 9:16: 3–15 | 0–3 |
+| `veo-3.1-quality` | t2v, i2v (no r2v) | same | same | same |
+| `omni-1.1-flash` | auto | 16:9, 9:16 | 4, 6, 8, 10 | 0–7 |
 
-Defaults: image 16:9 at 1K; Veo t2v 8 s, i2v 4 s; Omni auto 8 s.
+Defaults: image 16:9 at 1K; video `omni-1.2-flash` auto 8 s 16:9; Veo t2v 8 s, i2v 4 s; extend and edit 8 s.
+
+- **Retirements:** Flow retires `veo-3.1-fast`, `veo-3.1-quality` and `omni-1.1-flash` on **2026-12-05**. Until then the script warns; from that date it refuses them (the server would answer HTTP 400). Use `omni-1.2-flash` or `veo-3.1-lite`.
+- `omni-1.2-flash` clips of 11–15 s need a Google AI Plus, Pro or Ultra plan on the server's Flow account.
+- In practice on this server, Veo image-to-video has refused images that contain people (`MODEL_ACCESS_DENIED`), while `omni-1.2-flash` with reference images works. Prefer Omni for character shots.
+- A per-client key may be limited to some models: `check` lists which families the key can see, and a model outside the list answers HTTP 403 `model_not_allowed`.
 
 ## Rules
 
@@ -84,8 +104,10 @@ Defaults: image 16:9 at 1K; Veo t2v 8 s, i2v 4 s; Omni auto 8 s.
    - For a large batch or for video, state the number of generations first and wait for the user to agree.
    - `check` and `models` are free; run them whenever you need.
 2. **Do not resend blindly.**
-   - The script retries by itself on HTTP 429, quota errors and reCAPTCHA errors (after 5, 15 and 45 seconds).
-   - Report any other error to the user. A dropped connection or a timeout does not mean the upstream job stopped; look in the output folder before you send the job again.
+   - The script retries by itself on HTTP 429, quota errors and reCAPTCHA errors: it waits `Retry-After` when the server gives one, otherwise 5, 15 and 45 seconds, at most 3 times.
+   - It never retries `credit_budget_exceeded` (the key's monthly credit budget is spent until the 1st, UTC) or `model_not_allowed` (403). Tell the user.
+   - Report any other error to the user. With the default job transport, re-running the same command is safe: it returns the original job. With `--transport stream`, a dropped connection or a timeout does not mean the upstream job stopped; look in the output folder before you send it again.
+   - Errors such as `PUBLIC_ERROR_UNUSUAL_ACTIVITY` (Google flagged the Flow account) or a CAPTCHA provider out of balance are server-side problems: stop and tell the user; retrying makes a flag last longer.
 3. **Common errors:**
    - 401: wrong key.
    - 400/422: invalid combination or wrong data type. Keep the user's choices and fix only the part that is wrong.
@@ -131,4 +153,4 @@ Use this when a piece of art needs a big zoom or its shapes need to be separated
 python3 "${CLAUDE_SKILL_DIR}/scripts/test_flow2api.py"
 ```
 
-The tests use a local fake server and cost nothing. They cover: config priority, combination checks, parameter types, reference images, SSE frames split across chunks, CRLF, errors inside a stream, a missing `[DONE]`, 401/422 without leaking the key, safe media download, and extending by `media_id`.
+The tests use a local fake server and cost nothing. They cover: config priority, combination checks (including Omni extend/edit and reference limits), retirement dates, parameter types, reference images, the job API (polling with `Retry-After`, idempotent re-runs, `--new`, a failed job, fallback to streaming on old servers), 429 with `Retry-After`, `credit_budget_exceeded` and `model_not_allowed` not being retried, SSE frames split across chunks, CRLF, errors inside a stream (including a 429 event), a missing `[DONE]`, 401/422 without leaking the key, and safe media download.

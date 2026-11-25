@@ -1,6 +1,6 @@
 {
   "name": "motion-comic-studio",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "license": "MIT",
   "description": "Make narrated motion-comic films: design a cast from a story, generate consistent stills through a Flow2API server, and animate, subtitle, mix and render them in code.",
   "keywords": ["motion-comic", "storytelling", "video", "flow2api", "character-design"],
